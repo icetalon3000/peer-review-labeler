@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peer Review Labeler</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --bg:#f6f5f2; --card:#ffffff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e0db;
+    --accent:#9b1c1c; --accent-ink:#ffffff; --ok:#1e6b3a; --err:#a11; --drop:#fbfaf7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#141416; --card:#1d1d20; --ink:#ececee; --muted:#a0a0a8; --line:#33333a;
+      --accent:#d14b4b; --accent-ink:#fff; --ok:#5fc78a; --err:#ff7a7a; --drop:#202024; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  main{max-width:880px;margin:0 auto;padding:28px 16px 60px}
+  h1{font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  .drop{border:2px dashed var(--line);border-radius:10px;background:var(--drop);padding:28px 16px;text-align:center;cursor:pointer;transition:border-color .15s}
+  .drop.over{border-color:var(--accent)}
+  .drop strong{display:block;font-size:16px;margin-bottom:4px}
+  .drop span{color:var(--muted);font-size:13px}
+  label{display:block;font-weight:600;font-size:13px;margin:12px 0 4px}
+  textarea,input[type=text],input[type=number],select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+  textarea{resize:vertical}
+  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .opt{display:flex;gap:8px;align-items:flex-start;margin:8px 0;font-weight:400;font-size:14px}
+  .opt input{margin-top:4px}
+  .opt small{display:block;color:var(--muted)}
+  .btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}
+  button{font:inherit;font-weight:600;border-radius:8px;padding:9px 16px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+  button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  button:disabled{opacity:.5;cursor:default}
+  button.link{border:none;background:none;color:var(--muted);padding:0;font-weight:400;text-decoration:underline;font-size:13px}
+  ul.files{list-style:none;margin:12px 0 0;padding:0}
+  ul.files li{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+  ul.files .name{overflow-wrap:anywhere}
+  .st{white-space:nowrap;color:var(--muted);font-size:13px}
+  .st.ok{color:var(--ok)} .st.err{color:var(--err);white-space:normal}
+  .st a{color:var(--accent);font-weight:600}
+  .note{font-size:13px;color:var(--muted);margin:10px 0 0}
+  .lock{display:inline-block;font-size:12px;padding:3px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted);margin-bottom:14px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Peer Review Labeler</h1>
+  <p class="sub">Stamps the privileged &amp; confidential label on every page of your peer review PDFs.</p>
+  <div class="lock">🔒 Files are processed in this browser tab only. Nothing is uploaded.</div>
+
+  <div class="card">
+    <h2>1. Add PDFs</h2>
+    <div class="drop" id="drop">
+      <strong>Drop PDFs here or click to choose</strong>
+      <span>You can add many at once. Word files: save as PDF first.</span>
+    </div>
+    <input type="file" id="picker" accept="application/pdf,.pdf" multiple hidden>
+    <ul class="files" id="files"></ul>
+    <div class="btns" style="margin-top:12px">
+      <button class="primary" id="run" disabled>Label files</button>
+      <button id="zip" hidden>Download all (.zip)</button>
+      <button id="clear" hidden>Clear list</button>
+      <button id="sample">Try a sample page</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. Label settings</h2>
+    <label for="header">Top label (bold)</label>
+    <textarea id="header" rows="2"></textarea>
+    <label for="footer">Bottom notice</label>
+    <textarea id="footer" rows="4"></textarea>
+    <div class="row">
+      <div><label for="color">Color</label>
+        <select id="color"><option value="red">Dark red</option><option value="black">Black</option></select></div>
+      <div><label for="hsize">Top label size</label><input type="number" id="hsize" min="6" max="20" step="0.5"></div>
+      <div><label for="fsize">Bottom notice size</label><input type="number" id="fsize" min="5" max="14" step="0.5"></div>
+      <div><label for="suffix">Add to file name</label><input type="text" id="suffix"></div>
+    </div>
+    <label>Placement</label>
+    <label class="opt"><input type="radio" name="mode" value="shrink">
+      <span>Shrink page slightly to make room <em>(recommended)</em>
+      <small>Label never covers document text. Clickable links and fillable fields become flat.</small></span></label>
+    <label class="opt"><input type="radio" name="mode" value="overlay">
+      <span>Stamp on top of the existing page
+      <small>Keeps links and fields, but the label can overlap text that runs to the edge.</small></span></label>
+    <label class="opt"><input type="checkbox" id="backing">
+      <span>White box behind the label <small>Only used when stamping on top. Can hide text underneath it.</small></span></label>
+    <label class="opt"><input type="checkbox" id="watermark">
+      <span>Faint diagonal “CONFIDENTIAL” watermark</span></label>
+    <p class="note">Settings are remembered in this browser. <button class="link" id="reset">Reset to default wording</button></p>
+  </div>
+</main>
+
+<!-- Core labeling logic (no page/DOM code in this block) -->
+<script id="core">
+const DEFAULTS = {
+  header: "PRIVILEGED & CONFIDENTIAL \u2014 PEER REVIEW DOCUMENT",
+  footer: "Prepared by or at the direction of the Affect Peer Review Committee for peer review and quality improvement purposes. Protected from disclosure and discovery to the fullest extent permitted by applicable state and federal law. Do not copy, forward, or disclose without authorization.",
+  color: "red", hsize: 11, fsize: 7, mode: "shrink", watermark: false, backing: false, suffix: "_PRIVILEGED"
+};
+
+const PAD = 10, LH = 1.2, SIDE = 36;
+
+function normRot(a){ return ((Math.round(a / 90) * 90) % 360 + 360) % 360; }
+
+// Drop characters the built-in PDF font can't print (swap dashes for hyphens).
+function safeText(font, s){
+  try { font.widthOfTextAtSize(s, 10); return s; } catch (e) {
+    return [...s].map(c => {
+      try { font.widthOfTextAtSize(c, 10); return c; }
+      catch (_) { return /[\u2010-\u2015]/.test(c) ? "-" : (/[\u2018\u2019]/.test(c) ? "'" : (/[\u201C\u201D]/.test(c) ? '"' : "")); }
+    }).join("");
+  }
+}
+
+function wrap(text, font, size, maxW){
+  const out = [];
+  for (const para of String(text || "").replace(/\t/g, " ").split(/\r?\n/)) {
+    const words = safeText(font, para).split(/\s+/).filter(Boolean);
+    if (!words.length) continue;
+    let line = "";
+    for (const w of words) {
+      const test = line ? line + " " + w : w;
+      if (font.widthOfTextAtSize(test, size) <= maxW || !line) line = test;
+      else { out.push(line); line = w; }
+    }
+    if (line) out.push(line);
+  }
+  return out;
+}
+
+function layout(fonts, s, W){
+  const hs = +s.hsize || 11, fs = +s.fsize || 7, maxW = Math.max(100, W - SIDE * 2);
+  const head = wrap(s.header, fonts.bold, hs, maxW);
+  const foot = wrap(s.footer, fonts.reg, fs, maxW);
+  return {
+    head, foot, hs, fs,
+    hb: head.length ? PAD * 2 + head.length * hs * LH : 0,
+    fb: foot.length ? PAD * 2 + foot.length * fs * LH : 0
+  };
+}
+
+// Draws the label in "visual" coordinates (as the page appears on screen); map() converts to PDF coordinates.
+function stamp(page, map, rot, W, H, L, fonts, s){
+  const { rgb, degrees } = PDFLib;
+  const col = s.color === "black" ? rgb(0, 0, 0) : rgb(0.62, 0.07, 0.07);
+  const put = (txt, vx, vy, font, size, extra = {}) => {
+    const [x, y] = map(vx, vy);
+    page.drawText(txt, { x, y, size, font, color: extra.color || col,
+      rotate: degrees(rot + (extra.angle || 0)), opacity: extra.opacity == null ? 1 : extra.opacity });
+  };
+  const box = (vx, vy, w, h) => {
+    const [x, y] = map(vx, vy);
+    page.drawRectangle({ x, y, width: w, height: h, rotate: degrees(rot), color: rgb(1, 1, 1) });
+  };
+
+  if (s.watermark) {
+    const t = "CONFIDENTIAL", size = Math.min(W, H) / 7;
+    const tw = fonts.bold.widthOfTextAtSize(t, size), c = Math.SQRT1_2;
+    put(t, W / 2 - (tw / 2) * c + size * 0.35 * c, H / 2 - (tw / 2) * c - size * 0.35 * c,
+        fonts.bold, size, { angle: 45, color: PDFLib.rgb(0.5, 0.5, 0.5), opacity: 0.12 });
+  }
+  if (s.backing && s.mode === "overlay") {
+    if (L.hb) box(0, H - L.hb, W, L.hb);
+    if (L.fb) box(0, 0, W, L.fb);
+  }
+  L.head.forEach((ln, i) => {
+    const tw = fonts.bold.widthOfTextAtSize(ln, L.hs);
+    put(ln, (W - tw) / 2, H - PAD - L.hs - i * L.hs * LH, fonts.bold, L.hs);
+  });
+  const n = L.foot.length;
+  L.foot.forEach((ln, i) => {
+    const tw = fonts.reg.widthOfTextAtSize(ln, L.fs);
+    put(ln, (W - tw) / 2, PAD + (n - 1 - i) * L.fs * LH + L.fs * 0.25, fonts.reg, L.fs);
+  });
+}
+
+async function labelPdf(bytes, s){
+  const { PDFDocument, StandardFonts, degrees } = PDFLib;
+  const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  if (src.isEncrypted) throw new Error("This PDF is password-protected or encrypted. Open it and Print > Save as PDF, then try again.");
+  const pages = src.getPages();
+  if (!pages.length) throw new Error("This PDF has no pages.");
+
+  if (s.mode === "overlay") {
+    const fonts = { bold: await src.embedFont(StandardFonts.HelveticaBold), reg: await src.embedFont(StandardFonts.Helvetica) };
+    for (const p of pages) {
+      const cb = p.getCropBox(), r = normRot(p.getRotation().angle);
+      const w = cb.width, h = cb.height, X = cb.x, Y = cb.y;
+      const [W, H] = r % 180 ? [h, w] : [w, h];
+      const map = r === 0 ? (vx, vy) => [X + vx, Y + vy]
+               : r === 90 ? (vx, vy) => [X + w - vy, Y + vx]
+               : r === 180 ? (vx, vy) => [X + w - vx, Y + h - vy]
+               : (vx, vy) => [X + vy, Y + h - vx];
+      stamp(p, map, r, W, H, layout(fonts, s, W), fonts, s);
+    }
+    return await src.save();
+  }
+
+  // Shrink mode: rebuild each page with the original scaled into the space between the labels.
+  const out = await PDFDocument.create();
+  const fonts = { bold: await out.embedFont(StandardFonts.HelveticaBold), reg: await out.embedFont(StandardFonts.Helvetica) };
+  for (const p of pages) {
+    const cb = p.getCropBox(), r = normRot(p.getRotation().angle);
+    const w = cb.width, h = cb.height;
+    const [W, H] = r % 180 ? [h, w] : [w, h];
+    const L = layout(fonts, s, W);
+    const emb = await out.embedPage(p, { left: cb.x, bottom: cb.y, right: cb.x + w, top: cb.y + h });
+    const np = out.addPage([W, H]);
+    const avail = H - L.hb - L.fb - 4;
+    const sc = Math.max(0.3, Math.min(1, avail / H));
+    const cw = W * sc, ch = H * sc;
+    const x0 = (W - cw) / 2, y0 = L.fb + 2 + (avail - ch) / 2;
+    const o = r === 0 ? { x: x0, y: y0 }
+            : r === 90 ? { x: x0, y: y0 + w * sc, rotate: degrees(-90) }
+            : r === 180 ? { x: x0 + w * sc, y: y0 + h * sc, rotate: degrees(180) }
+            : { x: x0 + h * sc, y: y0, rotate: degrees(90) };
+    np.drawPage(emb, { ...o, xScale: sc, yScale: sc });
+    stamp(np, (vx, vy) => [vx, vy], 0, W, H, L, fonts, s);
+  }
+  return await out.save();
+}
+
+async function makeSample(){
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const d = await PDFDocument.create();
+  const f = await d.embedFont(StandardFonts.Helvetica), b = await d.embedFont(StandardFonts.HelveticaBold);
+  for (let i = 0; i < 2; i++) {
+    const p = d.addPage([612, 792]);
+    p.drawText("Sample Peer Review Worksheet (test document - no patient information)", { x: 40, y: 752, size: 12, font: b });
+    for (let y = 720, n = 1; y > 30; y -= 22, n++) {
+      p.drawText(`Line ${n}: placeholder text that runs close to the page edges to show how the label fits.`, { x: 40, y, size: 10, font: f, color: rgb(0.2, 0.2, 0.2) });
+    }
+    if (i === 1) p.setRotation(PDFLib.degrees(90));
+  }
+  return await d.save();
+}
+</script>
+
+<!-- Page wiring -->
+<script>
+const KEY = "peerReviewLabeler.v1";
+const $ = id => document.getElementById(id);
+let items = [];
+
+function loadSettings(){
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
+  return Object.assign({}, DEFAULTS, s);
+}
+function saveSettings(){
+  try { localStorage.setItem(KEY, JSON.stringify(readForm())); } catch (e) {}
+}
+function fillForm(s){
+  $("header").value = s.header; $("footer").value = s.footer; $("color").value = s.color;
+  $("hsize").value = s.hsize; $("fsize").value = s.fsize; $("suffix").value = s.suffix;
+  $("watermark").checked = !!s.watermark; $("backing").checked = !!s.backing;
+  document.querySelectorAll('input[name=mode]').forEach(r => r.checked = r.value === s.mode);
+}
+function readForm(){
+  const m = document.querySelector('input[name=mode]:checked');
+  return {
+    header: $("header").value, footer: $("footer").value, color: $("color").value,
+    hsize: parseFloat($("hsize").value) || DEFAULTS.hsize, fsize: parseFloat($("fsize").value) || DEFAULTS.fsize,
+    suffix: $("suffix").value, watermark: $("watermark").checked, backing: $("backing").checked,
+    mode: m ? m.value : "shrink"
+  };
+}
+
+function outName(name){
+  const base = name.replace(/\.pdf$/i, "");
+  return base + ($("suffix").value || "") + ".pdf";
+}
+
+function render(){
+  const ul = $("files"); ul.innerHTML = "";
+  for (const it of items) {
+    const li = document.createElement("li");
+    const nm = document.createElement("span"); nm.className = "name"; nm.textContent = it.file.name;
+    const st = document.createElement("span"); st.className = "st";
+    if (it.url) {
+      st.classList.add("ok");
+      const a = document.createElement("a"); a.href = it.url; a.download = outName(it.file.name); a.textContent = "Download";
+      st.append("Done · ", a);
+    } else if (it.error) { st.classList.add("err"); st.textContent = it.error; }
+    else st.textContent = it.status || "Ready";
+    li.append(nm, st); ul.append(li);
+  }
+  const done = items.filter(i => i.url).length;
+  $("run").disabled = !items.length;
+  $("clear").hidden = !items.length;
+  $("zip").hidden = done < 2;
+}
+
+function addFiles(list){
+  for (const f of list) {
+    if (!/\.pdf$/i.test(f.name) && f.type !== "application/pdf") continue;
+    items.push({ file: f });
+  }
+  render();
+}
+
+async function runAll(){
+  const s = readForm(); saveSettings();
+  $("run").disabled = true;
+  for (const it of items) {
+    if (it.url) URL.revokeObjectURL(it.url);
+    it.url = null; it.error = null; it.status = "Labeling…"; render();
+    try {
+      const bytes = await labelPdf(await it.file.arrayBuffer(), s);
+      it.blob = new Blob([bytes], { type: "application/pdf" });
+      it.url = URL.createObjectURL(it.blob);
+    } catch (e) {
+      it.error = "Couldn't label: " + (e && e.message ? e.message : e);
+    }
+    render();
+  }
+  $("run").disabled = false;
+}
+
+async function downloadZip(){
+  const zip = new JSZip(), used = {};
+  for (const it of items.filter(i => i.blob)) {
+    let n = outName(it.file.name);
+    if (used[n]) { used[n]++; n = n.replace(/\.pdf$/i, ` (${used[n]}).pdf`); } else used[n] = 1;
+    zip.file(n, it.blob);
+  }
+  const blob = await zip.generateAsync({ type: "blob" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "Peer_Review_Labeled.zip"; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+fillForm(loadSettings());
+document.querySelectorAll("textarea,input,select").forEach(el => el.addEventListener("change", saveSettings));
+$("reset").onclick = () => {
+  const s = readForm(); s.header = DEFAULTS.header; s.footer = DEFAULTS.footer;
+  fillForm(s); saveSettings();
+};
+const drop = $("drop"), picker = $("picker");
+drop.onclick = () => picker.click();
+picker.onchange = () => { addFiles(picker.files); picker.value = ""; };
+["dragenter", "dragover"].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", ev => addFiles(ev.dataTransfer.files));
+$("run").onclick = runAll;
+$("zip").onclick = downloadZip;
+$("clear").onclick = () => { items.forEach(i => i.url && URL.revokeObjectURL(i.url)); items = []; render(); };
+$("sample").onclick = async () => {
+  const bytes = await makeSample();
+  addFiles([new File([bytes], "Sample_Peer_Review.pdf", { type: "application/pdf" })]);
+};
+render();
+</script>
+</body>
+</html>
